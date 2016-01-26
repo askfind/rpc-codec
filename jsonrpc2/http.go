@@ -8,6 +8,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"net/rpc"
+	"strings"
 )
 
 const contentType = "application/json"
@@ -89,6 +90,11 @@ func (conn *httpClientConn) Read(buf []byte) (int, error) {
 	return n, err
 }
 
+func validContentType(contentType, compareWith string) bool {
+	ct := contentType[:strings.IndexRune(contentType, ';')]
+	return ct == compareWith
+}
+
 func (conn *httpClientConn) Write(buf []byte) (int, error) {
 	b := make([]byte, len(buf))
 	copy(b, buf)
@@ -100,7 +106,7 @@ func (conn *httpClientConn) Write(buf []byte) (int, error) {
 			var resp *http.Response
 			resp, err = (&http.Client{}).Do(req)
 			if err != nil {
-			} else if resp.Header.Get("Content-Type") != contentType {
+			} else if !validContentType(resp.Header.Get("Content-Type"), contentType) {
 				err = fmt.Errorf("bad HTTP Content-Type: %s", resp.Header.Get("Content-Type"))
 			} else if resp.StatusCode == http.StatusOK {
 				conn.ready <- resp.Body
