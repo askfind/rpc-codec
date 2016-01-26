@@ -125,43 +125,43 @@ func (r *clientResponse) UnmarshalJSON(raw []byte) error {
 	r.reset()
 	type resp *clientResponse
 	if err := json.Unmarshal(raw, resp(r)); err != nil {
-		return errors.New("bad response: " + string(raw))
+		return errors.New("bad response, unmarshal: " + string(raw))
 	}
 
 	var o = make(map[string]*json.RawMessage)
 	if err := json.Unmarshal(raw, &o); err != nil {
-		return errors.New("bad response: " + string(raw))
+		return errors.New("bad response, unmarshal message: " + string(raw))
 	}
 	_, okVer := o["jsonrpc"]
 	_, okID := o["id"]
 	_, okRes := o["result"]
 	_, okErr := o["error"]
 	if !okVer || !okID || !(okRes || okErr) || (okRes && okErr) || len(o) > 3 {
-		return errors.New("bad response: " + string(raw))
+		return errors.New("bad response, no required fields: " + string(raw))
 	}
 	if r.Version != "2.0" {
-		return errors.New("bad response: " + string(raw))
+		return errors.New("bad response, version: " + string(raw))
 	}
 	if okRes && r.Result == nil {
 		r.Result = &null
 	}
 	if okErr {
 		if o["error"] == nil {
-			return errors.New("bad response: " + string(raw))
+			return errors.New("bad response, empty error: " + string(raw))
 		}
 		oe := make(map[string]*json.RawMessage)
 		if err := json.Unmarshal(*o["error"], &oe); err != nil {
-			return errors.New("bad response: " + string(raw))
+			return errors.New("bad response, unmarshall error: " + string(raw))
 		}
 		if oe["code"] == nil || oe["message"] == nil {
-			return errors.New("bad response: " + string(raw))
+			return errors.New("bad response, no code or message: " + string(raw))
 		}
 		if _, ok := oe["data"]; (!ok && len(oe) > 2) || len(oe) > 3 {
-			return errors.New("bad response: " + string(raw))
+			return errors.New("bad response, no data: " + string(raw))
 		}
 	}
 	if o["id"] == nil && !okErr {
-		return errors.New("bad response: " + string(raw))
+		return errors.New("bad response, no id: " + string(raw))
 	}
 
 	return nil
