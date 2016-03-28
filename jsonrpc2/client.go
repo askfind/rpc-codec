@@ -34,6 +34,8 @@ type clientCodec struct {
 	// and then look it up by request ID when filling out the rpc Response.
 	mutex   sync.Mutex        // protects pending
 	pending map[uint64]string // map request id to method name
+
+	Auth *string
 }
 
 // NewClientCodec returns a new rpc.ClientCodec using JSON-RPC 2.0 on conn.
@@ -51,6 +53,7 @@ type clientRequest struct {
 	Method  string      `json:"method"`
 	Params  interface{} `json:"params,omitempty"`
 	ID      *uint64     `json:"id,omitempty"`
+	Auth    *string     `json:"auth,omitempty"`
 }
 
 func (c *clientCodec) WriteRequest(r *rpc.Request, param interface{}) error {
@@ -101,6 +104,7 @@ func (c *clientCodec) WriteRequest(r *rpc.Request, param interface{}) error {
 	req.Version = "2.0"
 	req.Method = r.ServiceMethod
 	req.Params = param
+	req.Auth = c.Auth
 	if err := c.enc.Encode(&req); err != nil {
 		return NewError(errInternal.Code, err.Error())
 	}
@@ -238,6 +242,10 @@ func (c Client) Notify(serviceMethod string, args interface{}) error {
 	return c.codec.WriteRequest(req, args)
 }
 
+func (c Client) Auth(auth string) {
+	c.codec.Auth = &auth
+}
+
 // NewClient returns a new Client to handle requests to the
 // set of services at the other end of the connection.
 func NewClient(conn io.ReadWriteCloser) *Client {
@@ -254,3 +262,5 @@ func Dial(network, address string) (*Client, error) {
 	}
 	return NewClient(conn), err
 }
+
+
