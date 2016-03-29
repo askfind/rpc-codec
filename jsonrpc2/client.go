@@ -243,7 +243,11 @@ func (c Client) Notify(serviceMethod string, args interface{}) error {
 }
 
 func (c Client) Auth(auth string) {
-	c.codec.Auth = &auth
+	if auth != "" {
+		c.codec.Auth = &auth
+	} else {
+		c.codec.Auth = nil
+	}
 }
 
 // NewClient returns a new Client to handle requests to the
