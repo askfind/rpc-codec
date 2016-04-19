@@ -36,7 +36,11 @@ type clientCodec struct {
 	pending map[uint64]string // map request id to method name
 
 	Auth *string
+
 }
+
+var RequestCallback *func(interface{})
+var ResponseCallback *func([]byte)
 
 // NewClientCodec returns a new rpc.ClientCodec using JSON-RPC 2.0 on conn.
 func NewClientCodec(conn io.ReadWriteCloser) rpc.ClientCodec {
@@ -105,6 +109,9 @@ func (c *clientCodec) WriteRequest(r *rpc.Request, param interface{}) error {
 	req.Method = r.ServiceMethod
 	req.Params = param
 	req.Auth = c.Auth
+	if RequestCallback != nil {
+		(*RequestCallback)(req)
+	}
 	if err := c.enc.Encode(&req); err != nil {
 		return NewError(errInternal.Code, err.Error())
 	}
@@ -126,6 +133,9 @@ func (r *clientResponse) reset() {
 }
 
 func (r *clientResponse) UnmarshalJSON(raw []byte) error {
+	if ResponseCallback != nil {
+		(*ResponseCallback)(raw)
+	}
 	r.reset()
 	type resp *clientResponse
 	if err := json.Unmarshal(raw, resp(r)); err != nil {
@@ -242,7 +252,7 @@ func (c Client) Notify(serviceMethod string, args interface{}) error {
 	return c.codec.WriteRequest(req, args)
 }
 
-func (c Client) Auth(auth string) {
+func (c Client) SetAuth(auth string) {
 	c.codec.Auth = &auth
 }
 
