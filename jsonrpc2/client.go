@@ -3,8 +3,6 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-// Package jsonrpc2 implements a JSON-RPC 2.0 ClientCodec and ServerCodec
-// for the net/rpc package.
 package jsonrpc2
 
 import (
@@ -36,7 +34,6 @@ type clientCodec struct {
 	pending map[uint64]string // map request id to method name
 
 	Auth *string
-
 }
 
 var RequestCallback *func(interface{})
@@ -121,8 +118,8 @@ func (c *clientCodec) WriteRequest(r *rpc.Request, param interface{}) error {
 type clientResponse struct {
 	Version string           `json:"jsonrpc"`
 	ID      *uint64          `json:"id"`
-	Result  *json.RawMessage `json:"result"`
-	Error   *Error           `json:"error"`
+	Result  *json.RawMessage `json:"result,omitempty"`
+	Error   *Error           `json:"error,omitempty"`
 }
 
 func (r *clientResponse) reset() {
@@ -263,7 +260,7 @@ func (c Client) SetAuth(auth string) {
 // NewClient returns a new Client to handle requests to the
 // set of services at the other end of the connection.
 func NewClient(conn io.ReadWriteCloser) *Client {
-	codec := NewClientCodec(conn)
+	codec := newClientCodec(conn)
 	client := rpc.NewClientWithCodec(codec)
 	return &Client{client, codec.(*clientCodec)}
 }
@@ -276,5 +273,3 @@ func Dial(network, address string) (*Client, error) {
 	}
 	return NewClient(conn), err
 }
-
-

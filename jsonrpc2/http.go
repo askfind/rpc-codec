@@ -2,6 +2,7 @@ package jsonrpc2
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -12,6 +13,17 @@ import (
 )
 
 const contentType = "application/json"
+
+type contextKey int
+
+var httpRequestContextKey contextKey = 0
+
+// HTTPRequestFromContext returns HTTP request related to this RPC (if
+// you use HTTPHander to serve JSON RPC 2.0 over HTTP) or nil otherwise.
+func HTTPRequestFromContext(ctx context.Context) *http.Request {
+	req, _ := ctx.Value(httpRequestContextKey).(*http.Request)
+	return req
+}
 
 type httpServerConn struct {
 	req     io.Reader
@@ -37,11 +49,11 @@ type httpHandler struct {
 }
 
 // HTTPHandler returns handler for HTTP requests which will execute
-// incoming RPC using srv. If srv is nil then use rpc.DefaultServer.
+// incoming JSON-RPC 2.0 over HTTP using srv.
+//
+// If srv is nil then rpc.DefaultServer will be used.
 //
 // Specification: http://www.simple-is-better.org/json-rpc/transport_http.html
-//   - Pipelined Requests/Responses not supported.
-//   - GET Request not supported.
 func HTTPHandler(srv *rpc.Server) http.Handler {
 	if srv == nil {
 		srv = rpc.DefaultServer
@@ -61,15 +73,32 @@ func (h *httpHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	ctx := context.WithValue(context.Background(), httpRequestContextKey, req)
 	conn := &httpServerConn{req: req.Body, res: w}
-	h.rpc.ServeRequest(NewServerCodec(conn, h.rpc))
+	h.rpc.ServeRequest(NewServerCodecContext(ctx, conn, h.rpc))
 	if !conn.replied {
 		w.WriteHeader(http.StatusNoContent)
 	}
 }
 
+// Doer is an interface for doing HTTP requests.
+type Doer interface {
+	Do(req *http.Request) (resp *http.Response, err error)
+}
+
+// The DoerFunc type is an adapter to allow the use of ordinary
+// functions as HTTP clients. If f is a function with the appropriate
+// signature, DoerFunc(f) is a client that calls f.
+type DoerFunc func(req *http.Request) (resp *http.Response, err error)
+
+// DoerFunc calls f(req).
+func (f DoerFunc) Do(req *http.Request) (resp *http.Response, err error) {
+	return f(req)
+}
+
 type httpClientConn struct {
 	url   string
+	doer  Doer
 	ready chan io.ReadCloser
 	body  io.ReadCloser
 }
@@ -104,7 +133,8 @@ func (conn *httpClientConn) Write(buf []byte) (int, error) {
 			req.Header.Add("Content-Type", contentType)
 			req.Header.Add("Accept", contentType)
 			var resp *http.Response
-			resp, err = (&http.Client{}).Do(req)
+			resp, err = conn.doer.Do(req)
+			const maxBodySlurpSize = 32 * 1024
 			if err != nil {
 			} else if !validContentType(resp.Header.Get("Content-Type"), contentType) {
 				err = fmt.Errorf("bad HTTP Content-Type: %s", resp.Header.Get("Content-Type"))
@@ -112,13 +142,23 @@ func (conn *httpClientConn) Write(buf []byte) (int, error) {
 				conn.ready <- resp.Body
 				return
 			} else if resp.StatusCode == http.StatusNoContent || resp.StatusCode == http.StatusAccepted {
-				resp.Body.Close() // is it should be read to EOF first?
+				// Read the body if small so underlying TCP connection will be re-used.
+				// No need to check for errors: if it fails, Transport won't reuse it anyway.
+				if resp.ContentLength == -1 || resp.ContentLength <= maxBodySlurpSize {
+					io.CopyN(ioutil.Discard, resp.Body, maxBodySlurpSize)
+				}
+				resp.Body.Close()
 				return
 			} else {
 				err = fmt.Errorf("bad HTTP Status: %s", resp.Status)
 			}
 			if resp != nil {
-				resp.Body.Close() // is it should be read to EOF first?
+				// Read the body if small so underlying TCP connection will be re-used.
+				// No need to check for errors: if it fails, Transport won't reuse it anyway.
+				if resp.ContentLength == -1 || resp.ContentLength <= maxBodySlurpSize {
+					io.CopyN(ioutil.Discard, resp.Body, maxBodySlurpSize)
+				}
+				resp.Body.Close()
 			}
 		}
 		var res clientResponse
@@ -140,5 +180,23 @@ func (conn *httpClientConn) Close() error {
 // NewHTTPClient returns a new Client to handle requests to the
 // set of services at the given url.
 func NewHTTPClient(url string) *Client {
-	return NewClient(&httpClientConn{url: url, ready: make(chan io.ReadCloser, 16)})
+	return NewCustomHTTPClient(url, nil)
+}
+
+// NewCustomHTTPClient returns a new Client to handle requests to the
+// set of services at the given url using provided doer (&http.Client{} by
+// default).
+//
+// Use doer to customize HTTP authorization/headers/etc. sent with each
+// request (it method Do() will receive already configured POST request
+// with url, all required headers and body set according to specification).
+func NewCustomHTTPClient(url string, doer Doer) *Client {
+	if doer == nil {
+		doer = &http.Client{}
+	}
+	return NewClient(&httpClientConn{
+		url:   url,
+		doer:  doer,
+		ready: make(chan io.ReadCloser, 16),
+	})
 }
