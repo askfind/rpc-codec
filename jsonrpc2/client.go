@@ -260,7 +260,7 @@ func (c Client) SetAuth(auth string) {
 // NewClient returns a new Client to handle requests to the
 // set of services at the other end of the connection.
 func NewClient(conn io.ReadWriteCloser) *Client {
-	codec := newClientCodec(conn)
+	codec := NewClientCodec(conn)
 	client := rpc.NewClientWithCodec(codec)
 	return &Client{client, codec.(*clientCodec)}
 }
